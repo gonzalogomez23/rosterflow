@@ -28,7 +28,7 @@ export default async function RostersPage() {
 				<PageHeader title="Rosters" description="Generated schedules" />
 				<Button asChild>
 					<Link href="/dashboard/rosters/generate">
-						<Plus className="mr-2 h-4 w-4" />
+						<Plus className="h-4 w-4" />
 						Generate Roster
 					</Link>
 				</Button>
@@ -47,7 +47,7 @@ export default async function RostersPage() {
 					{rosters.map((roster) => (
 						<TableRow key={roster.id}>
 							<TableCell className="font-medium">
-								{roster.start_date} — {roster.end_date}
+								{roster.start_date.split("-").reverse().join("/")} — {roster.end_date.split("-").reverse().join("/")}
 							</TableCell>
 							<TableCell>
 								<Badge variant={statusVariant[roster.status]}>
@@ -55,7 +55,7 @@ export default async function RostersPage() {
 								</Badge>
 							</TableCell>
 							<TableCell>
-								{new Date(roster.created_at).toLocaleDateString()}
+								{new Date(roster.created_at).toLocaleDateString("es-ES", { day: "2-digit", month: "2-digit", year: "numeric" })}
 							</TableCell>
 							<TableCell>
 								<Button asChild size="sm" variant="outline">

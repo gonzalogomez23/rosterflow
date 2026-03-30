@@ -32,8 +32,8 @@ export function RosterTable({
 	startDate,
 	onCellClick,
 }: Props) {
-	const empMap = new Map(employees.map((e) => [e.id, e]));
 	const posMap = new Map(positions.map((p) => [p.id, p]));
+	const shiftMap = new Map(shifts.map((s) => [s.id, s]));
 
 	// Generate date columns
 	const dates: string[] = [];
@@ -43,16 +43,49 @@ export function RosterTable({
 		current = addDays(current, 1);
 	}
 
-	function getAssignmentsForShift(shiftId: string, date: string) {
-		return assignments.filter(
-			(a) => a.shiftId === shiftId && a.date === date,
-		);
+	// Build assignment lookup: employeeId -> date -> assignment
+	const assignmentByEmpDate = new Map<string, Map<string, RosterAssignment>>();
+	for (const a of assignments) {
+		if (!assignmentByEmpDate.has(a.employeeId)) {
+			assignmentByEmpDate.set(a.employeeId, new Map());
+		}
+		assignmentByEmpDate.get(a.employeeId)!.set(a.date, a);
 	}
 
-	// Only show shifts that have assignments
-	const activeShifts = shifts.filter((s) =>
-		assignments.some((a) => a.shiftId === s.id),
-	);
+	// Only show employees with assignments
+	const activeEmployeeIds = new Set(assignments.map((a) => a.employeeId));
+	const activeEmployees = employees.filter((e) => activeEmployeeIds.has(e.id));
+
+	// Group by primary position
+	const grouped = new Map<string, Employee[]>();
+	for (const emp of activeEmployees) {
+		const posId = emp.primaryPositionId ?? emp.positionIds[0] ?? "unknown";
+		if (!grouped.has(posId)) grouped.set(posId, []);
+		grouped.get(posId)!.push(emp);
+	}
+
+	// Sort employees within each group by name
+	for (const group of grouped.values()) {
+		group.sort((a, b) => a.firstName.localeCompare(b.firstName));
+	}
+
+	function getShiftInfo(assignment: RosterAssignment | undefined) {
+		if (!assignment) return { time: "OFF", positionName: null, positionColor: null, isCross: false };
+		const shift = shiftMap.get(assignment.shiftId);
+		if (!shift) return { time: "?", positionName: null, positionColor: null, isCross: false };
+		const date = new Date(assignment.date);
+		const jsDay = date.getUTCDay();
+		const dayOfWeek = jsDay === 0 ? 6 : jsDay - 1;
+		const schedule = shift.schedules.find((s) => s.dayOfWeek === dayOfWeek);
+		if (!schedule) return { time: "?", positionName: null, positionColor: null, isCross: false };
+		const pos = posMap.get(shift.positionId);
+		return {
+			time: `${schedule.startTime.slice(0, 5)} - ${schedule.endTime.slice(0, 5)}`,
+			positionName: pos?.name ?? null,
+			positionColor: pos?.color ?? null,
+			isCross: true,
+		};
+	}
 
 	if (assignments.length === 0) {
 		return (
@@ -67,77 +100,79 @@ export function RosterTable({
 			<table className="w-full text-sm">
 				<thead>
 					<tr className="border-b bg-muted/50">
-						<th className="p-2 text-left font-medium">Shift</th>
 						<th className="p-2 text-left font-medium">Position</th>
+						<th className="p-2 text-left font-medium">Employee</th>
 						{dates.map((date, i) => (
-							<th key={date} className="p-2 text-center font-medium min-w-[100px]">
+							<th key={date} className="p-2 text-center font-medium min-w-[120px]">
 								<div>{DAYS[i]}</div>
 								<div className="text-xs text-muted-foreground">
-									{format(new Date(date), "MMM d")}
+									{format(new Date(date), "dd/MM/yyyy")}
 								</div>
 							</th>
 						))}
 					</tr>
 				</thead>
 				<tbody>
-					{activeShifts.map((shift) => {
-						const pos = posMap.get(shift.positionId);
-						return (
-							<tr key={shift.id} className="border-b">
-								<td className="p-2 font-medium align-top border-r">
-									<div>{shift.name}</div>
-								</td>
-								<td className="p-2 border-r">
-									<div className="flex items-center gap-1.5">
-										{pos && (
-											<div
-												className="h-2.5 w-2.5 rounded-full"
-												style={{ backgroundColor: pos.color }}
-											/>
-										)}
-										{pos?.name ?? "Unknown"}
-									</div>
+					{Array.from(grouped.entries()).map(([posId, groupEmployees]) => {
+						const pos = posMap.get(posId);
+						return groupEmployees.map((emp, empIdx) => (
+							<tr key={emp.id} className="border-b">
+								{empIdx === 0 && (
+									<td
+										rowSpan={groupEmployees.length}
+										className="p-2 font-medium align-middle border-r bg-muted/20"
+									>
+										<div className="flex items-center gap-1.5">
+											{pos && (
+												<div
+													className="h-2.5 w-2.5 rounded-full shrink-0"
+													style={{ backgroundColor: pos.color }}
+												/>
+											)}
+											{pos?.name ?? "Unknown"}
+										</div>
+									</td>
+								)}
+								<td className="p-2 font-medium border-r whitespace-nowrap">
+									{emp.firstName} {emp.lastName}
 								</td>
 								{dates.map((date) => {
-									const dayAssignments = getAssignmentsForShift(shift.id, date);
-
+									const empAssignments = assignmentByEmpDate.get(emp.id);
+									const assignment = empAssignments?.get(date);
+									const info = getShiftInfo(assignment);
+									const isOff = info.time === "OFF";
+									const shift = assignment ? shiftMap.get(assignment.shiftId) : null;
+									const isOtherPosition = shift ? shift.positionId !== posId : false;
 									return (
 										<td
 											key={date}
-											className={`p-2 text-center border-r ${
-												onCellClick
-													? "cursor-pointer hover:bg-accent"
-													: ""
-											} ${dayAssignments.length === 0 ? "bg-muted/30" : ""}`}
+											className={`p-2 text-center border-r text-xs ${
+												isOff
+													? "bg-muted/30 text-muted-foreground"
+													: "font-medium"
+											} ${onCellClick ? "cursor-pointer hover:bg-accent" : ""}`}
 											onClick={() =>
 												onCellClick?.(
 													date,
-													shift.id,
-													dayAssignments[0]?.employeeId,
+													assignment?.shiftId ?? "",
+													assignment?.employeeId,
 												)
 											}
 										>
-											{dayAssignments.length > 0 ? (
-												dayAssignments.map((assignment, i) => {
-													const emp = empMap.get(assignment.employeeId);
-													return (
-														<div key={i} className="text-xs font-medium">
-															{emp
-																? `${emp.firstName} ${emp.lastName[0]}.`
-																: "?"}
-														</div>
-													);
-												})
-											) : (
-												<span className="text-xs text-muted-foreground">
-													—
-												</span>
+											<div>{info.time}</div>
+											{isOtherPosition && info.positionName && (
+												<div
+													className="text-[10px] mt-0.5 font-normal"
+													style={{ color: info.positionColor ?? undefined }}
+												>
+													{info.positionName}
+												</div>
 											)}
 										</td>
 									);
 								})}
 							</tr>
-						);
+						));
 					})}
 				</tbody>
 			</table>

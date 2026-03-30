@@ -12,46 +12,35 @@ export function scoreEmployee(
 	allEmployeeIds: string[],
 	previousAssignments: RosterAssignment[],
 ): number {
-	const weights = {
-		hoursFairness: 0.5,
-		rotationPenalty: 0.3,
-		previousRosterPenalty: 0.15,
-		jitter: 0.05,
-	};
+	const shiftMap = new Map(shifts.map((s) => [s.id, s]));
+	const shift = shiftMap.get(shiftId);
 
-	// Hours fairness: prioritize employees with fewer assigned hours
+	// 1. Primary position: flat bonus — primary always beats secondary
+	const isPrimary = shift && employee.primaryPositionId === shift.positionId;
+	const primaryBonus = isPrimary ? 100 : 0;
+
+	// 2. Hours remaining: main factor within the same tier
+	//    Employees with more remaining capacity score higher (range ~0-10)
 	const currentHours = getEmployeeHours(employee.id, assignments, shifts);
-	const maxPossibleHours = Math.max(
-		...allEmployeeIds.map((id) =>
-			getEmployeeHours(id, assignments, shifts),
-		),
-		1,
-	);
-	const hoursFairness = 1 - currentHours / (maxPossibleHours + 1);
+	const remainingRatio = Math.max(0, (employee.maxHoursPerWeek - currentHours) / employee.maxHoursPerWeek);
+	const hoursScore = remainingRatio * 10;
 
-	// Rotation penalty: penalize if employee has done this shift a lot
+	// 3. Consistency: small tiebreaker — prefer keeping same shift across the week
 	const sameShiftCount = assignments.filter(
 		(a) => a.employeeId === employee.id && a.shiftId === shiftId,
 	).length;
-	const totalAssignments = assignments.filter(
-		(a) => a.employeeId === employee.id,
-	).length;
-	const rotationPenalty =
-		totalAssignments > 0 ? 1 - sameShiftCount / (totalAssignments + 1) : 1;
+	const consistencyBonus = sameShiftCount * 0.5;
 
-	// Previous roster penalty: penalize if they had the same shift last week
+	// 4. Previous roster penalty
 	const hadSameShiftLastWeek = previousAssignments.some(
 		(a) => a.employeeId === employee.id && a.shiftId === shiftId,
 	);
-	const previousRosterPenalty = hadSameShiftLastWeek ? 0.3 : 1;
-
-	// Random jitter for variety
-	const jitter = Math.random();
+	const previousRosterPenalty = hadSameShiftLastWeek ? -0.3 : 0;
 
 	return (
-		weights.hoursFairness * hoursFairness +
-		weights.rotationPenalty * rotationPenalty +
-		weights.previousRosterPenalty * previousRosterPenalty +
-		weights.jitter * jitter
+		primaryBonus +
+		hoursScore +
+		consistencyBonus +
+		previousRosterPenalty
 	);
 }

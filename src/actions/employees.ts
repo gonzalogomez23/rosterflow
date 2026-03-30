@@ -9,7 +9,7 @@ export async function getEmployees() {
 	const { data, error } = await supabase
 		.from("employees")
 		.select(
-			"*, employee_positions(position_id), employee_availability(*)",
+			"*, employee_positions(position_id, is_primary), employee_availability(*)",
 		)
 		.eq("is_active", true)
 		.order("first_name");
@@ -23,7 +23,7 @@ export async function getEmployee(id: string) {
 	const { data, error } = await supabase
 		.from("employees")
 		.select(
-			"*, employee_positions(position_id), employee_availability(*)",
+			"*, employee_positions(position_id, is_primary), employee_availability(*)",
 		)
 		.eq("id", id)
 		.single();
@@ -52,14 +52,15 @@ export async function createEmployee(input: EmployeeFormData) {
 	if (error) return { error: error.message };
 
 	// Insert positions
-	if (input.position_ids.length > 0) {
-		await supabase.from("employee_positions").insert(
-			input.position_ids.map((pid) => ({
-				employee_id: employee.id,
-				position_id: pid,
-			})),
-		);
-	}
+	const positionRows = [
+		{ employee_id: employee.id, position_id: input.primary_position_id, is_primary: true },
+		...input.secondary_position_ids.map((pid) => ({
+			employee_id: employee.id,
+			position_id: pid,
+			is_primary: false,
+		})),
+	];
+	await supabase.from("employee_positions").insert(positionRows);
 
 	// Insert availability
 	if (input.availability.length > 0) {
@@ -95,14 +96,15 @@ export async function updateEmployee(id: string, input: EmployeeFormData) {
 
 	// Replace positions
 	await supabase.from("employee_positions").delete().eq("employee_id", id);
-	if (input.position_ids.length > 0) {
-		await supabase.from("employee_positions").insert(
-			input.position_ids.map((pid) => ({
-				employee_id: id,
-				position_id: pid,
-			})),
-		);
-	}
+	const positionRows = [
+		{ employee_id: id, position_id: input.primary_position_id, is_primary: true },
+		...input.secondary_position_ids.map((pid) => ({
+			employee_id: id,
+			position_id: pid,
+			is_primary: false,
+		})),
+	];
+	await supabase.from("employee_positions").insert(positionRows);
 
 	// Replace availability
 	await supabase.from("employee_availability").delete().eq("employee_id", id);

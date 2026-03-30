@@ -64,64 +64,110 @@ export function generateRoster(input: GenerateInput): RosterResult {
 		current = addDays(current, 1);
 	}
 
-	// Step 2: Sort slots by difficulty (fewer eligible candidates first)
-	const slotDifficulty = slots.map((slot) => {
-		const shift = shiftMap.get(slot.shiftId)!;
-		const eligible = employees.filter(
-			(e) =>
-				hasPosition(e, shift.positionId) && isAvailable(e, slot),
-		);
-		return { slot, eligibleCount: eligible.length };
-	});
-
-	slotDifficulty.sort((a, b) => a.eligibleCount - b.eligibleCount);
-
 	const allEmployeeIds = employees.map((e) => e.id);
 
-	// Step 3 & 4: For each slot, score and assign
-	for (const { slot } of slotDifficulty) {
+	// Build a map of how many slots each position needs per date
+	const positionDemand = new Map<string, number>();
+	for (const slot of slots) {
+		const shift = shiftMap.get(slot.shiftId)!;
+		const key = `${shift.positionId}:${slot.date}`;
+		positionDemand.set(key, (positionDemand.get(key) ?? 0) + 1);
+	}
+
+	// Count how many primary employees are available for a position on a date
+	function primarySupply(positionId: string, date: string, dayOfWeek: number): number {
+		return employees.filter((e) =>
+			e.primaryPositionId === positionId &&
+			e.availability.some((a) => a.dayOfWeek === dayOfWeek),
+		).length;
+	}
+
+	// Check if an employee is "needed" by another position on a given date
+	// (i.e., that position has more demand than primary supply)
+	function neededElsewhere(employee: Employee, date: string, dayOfWeek: number, excludePositionId: string): boolean {
+		for (const posId of employee.positionIds) {
+			if (posId === excludePositionId) continue;
+			const key = `${posId}:${date}`;
+			const demand = positionDemand.get(key) ?? 0;
+			if (demand === 0) continue;
+			const supply = primarySupply(posId, date, dayOfWeek);
+			if (supply < demand) return true;
+		}
+		return false;
+	}
+
+	function assignSlot(slot: Slot, primaryOnly: boolean): boolean {
 		const shift = shiftMap.get(slot.shiftId)!;
 
-		// Find eligible employees for this slot
-		const candidates = employees.filter(
-			(e) =>
-				hasPosition(e, shift.positionId) &&
-				isAvailable(e, slot) &&
-				!hasShiftOnDate(e.id, slot.date, assignments) &&
-				!wouldExceedMaxHours(e, slot, assignments, shifts),
-		);
+		const candidates = employees.filter((e) => {
+			if (!hasPosition(e, shift.positionId)) return false;
+			if (!isAvailable(e, slot)) return false;
+			if (hasShiftOnDate(e.id, slot.date, assignments)) return false;
+			if (wouldExceedMaxHours(e, slot, assignments, shifts)) return false;
+			if (primaryOnly && e.primaryPositionId !== shift.positionId) return false;
+			return true;
+		});
 
-		if (candidates.length === 0) {
-			const pos = positions.find((p) => p.id === shift.positionId);
-			const posName = pos?.name ?? "Unknown";
-			warnings.push(
-				`No available employee for ${posName} on ${slot.date} (${shift.name})`,
-			);
-			continue;
-		}
+		if (candidates.length === 0) return false;
 
-		// Score each candidate
-		const scored = candidates.map((e) => ({
+		// In primary pass, avoid using employees that are needed elsewhere as secondary
+		const preferred = primaryOnly
+			? candidates.filter((e) => !neededElsewhere(e, slot.date, slot.dayOfWeek, shift.positionId))
+			: candidates;
+		const pool = preferred.length > 0 ? preferred : candidates;
+
+		const scored = pool.map((e) => ({
 			employee: e,
-			score: scoreEmployee(
-				e,
-				slot.shiftId,
-				assignments,
-				shifts,
-				allEmployeeIds,
-				previousAssignments,
-			),
+			score: scoreEmployee(e, slot.shiftId, assignments, shifts, allEmployeeIds, previousAssignments),
 		}));
-
 		scored.sort((a, b) => b.score - a.score);
 
-		// Assign the best candidate
-		const best = scored[0].employee;
 		assignments.push({
-			employeeId: best.id,
+			employeeId: scored[0].employee.id,
 			shiftId: slot.shiftId,
 			date: slot.date,
 		});
+		return true;
+	}
+
+	// Sort slots: fewer eligible candidates first (hardest to fill)
+	function sortByDifficulty(slotsToSort: Slot[], primaryOnly: boolean) {
+		return [...slotsToSort].sort((a, b) => {
+			const shiftA = shiftMap.get(a.shiftId)!;
+			const shiftB = shiftMap.get(b.shiftId)!;
+			const eligibleA = employees.filter((e) =>
+				hasPosition(e, shiftA.positionId) &&
+				isAvailable(e, a) &&
+				(!primaryOnly || e.primaryPositionId === shiftA.positionId),
+			).length;
+			const eligibleB = employees.filter((e) =>
+				hasPosition(e, shiftB.positionId) &&
+				isAvailable(e, b) &&
+				(!primaryOnly || e.primaryPositionId === shiftB.positionId),
+			).length;
+			return eligibleA - eligibleB;
+		});
+	}
+
+	// Pass 1: Fill slots with primary-position employees only
+	const sortedPrimary = sortByDifficulty(slots, true);
+	const unfilled: Slot[] = [];
+	for (const slot of sortedPrimary) {
+		if (!assignSlot(slot, true)) {
+			unfilled.push(slot);
+		}
+	}
+
+	// Pass 2: Fill remaining slots with any eligible employee
+	const sortedRemaining = sortByDifficulty(unfilled, false);
+	for (const slot of sortedRemaining) {
+		if (!assignSlot(slot, false)) {
+			const shift = shiftMap.get(slot.shiftId)!;
+			const pos = positions.find((p) => p.id === shift.positionId);
+			warnings.push(
+				`No available employee for ${pos?.name ?? "Unknown"} on ${slot.date.split("-").reverse().join("/")} (${shift.name})`,
+			);
+		}
 	}
 
 	// Step 5: Build stats

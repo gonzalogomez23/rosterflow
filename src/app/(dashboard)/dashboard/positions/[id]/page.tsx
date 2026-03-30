@@ -2,12 +2,14 @@
 
 import { useEffect, useState, useTransition, use } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, Pencil, Trash2, Plus, CalendarClock } from "lucide-react";
+import { ArrowLeft, Pencil, Trash2, Plus, CalendarClock, X } from "lucide-react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { getPositions } from "@/actions/positions";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { getPositions, updatePosition } from "@/actions/positions";
+import { ColorPicker } from "@/components/ui/color-picker";
 import {
 	getShiftsByPosition,
 	createShift,
@@ -72,8 +74,13 @@ export default function PositionDetailPage({
 	const [newShiftTemplate, setNewShiftTemplate] = useState<ShiftTemplate>({ start_time: "09:00", end_time: "17:00", count: 1 });
 	const [newShiftDraft, setNewShiftDraft] = useState<ShiftDraft>({});
 	const [editingShiftId, setEditingShiftId] = useState<string | null>(null);
+	const [shiftToDelete, setShiftToDelete] = useState<string | null>(null);
+	const [pendingCloseSchedule, setPendingCloseSchedule] = useState<string | null>(null);
 	const [editingShiftName, setEditingShiftName] = useState("");
 	const [editingScheduleId, setEditingScheduleId] = useState<string | null>(null);
+	const [editingPosition, setEditingPosition] = useState(false);
+	const [editPosName, setEditPosName] = useState("");
+	const [editPosColor, setEditPosColor] = useState("");
 
 	const [draftSchedules, setDraftSchedules] = useState<Record<string, ShiftDraft>>({});
 	const [templateByShift, setTemplateByShift] = useState<Record<string, ShiftTemplate>>({});
@@ -137,6 +144,18 @@ export default function PositionDetailPage({
 		});
 	}
 
+	function handleUpdatePosition() {
+		if (!editPosName.trim()) return;
+		const fd = new FormData();
+		fd.set("name", editPosName.trim());
+		fd.set("color", editPosColor);
+		startTransition(async () => {
+			await updatePosition(positionId, fd);
+			setEditingPosition(false);
+			await loadData();
+		});
+	}
+
 	function handleDeleteShift(id: string) {
 		startTransition(async () => {
 			await deleteShift(id);
@@ -146,10 +165,19 @@ export default function PositionDetailPage({
 	}
 
 	function updateTemplate(shiftId: string, field: keyof ShiftTemplate, value: string | number) {
-		setTemplateByShift((prev) => ({
-			...prev,
-			[shiftId]: { ...(prev[shiftId] ?? { start_time: "09:00", end_time: "17:00", count: 1 }), [field]: value },
-		}));
+		const newTemplate = { ...(templateByShift[shiftId] ?? { start_time: "09:00", end_time: "17:00", count: 1 }), [field]: value };
+		setTemplateByShift((prev) => ({ ...prev, [shiftId]: newTemplate }));
+		// Update all active days in the draft with the new template values
+		setDraftSchedules((prev) => {
+			const draft = { ...(prev[shiftId] ?? {}) };
+			for (const day in draft) {
+				if (draft[day] !== null && draft[day] !== undefined) {
+					draft[day] = { ...newTemplate };
+				}
+			}
+			return { ...prev, [shiftId]: draft };
+		});
+		setDirtyShifts((prev) => new Set(prev).add(shiftId));
 	}
 
 	function handleToggleDay(shiftId: string, dayIdx: number) {
@@ -186,6 +214,7 @@ export default function PositionDetailPage({
 	}
 
 	return (
+		<>
 		<div className="space-y-6">
 			<div className="flex items-center gap-3">
 				<Button variant="ghost" size="icon" asChild>
@@ -193,13 +222,37 @@ export default function PositionDetailPage({
 						<ArrowLeft className="h-4 w-4" />
 					</Link>
 				</Button>
-				<div>
+				{editingPosition ? (
 					<div className="flex items-center gap-2">
+						<ColorPicker name="color" defaultValue={editPosColor} onChange={setEditPosColor} />
+						<Input
+							autoFocus
+							value={editPosName}
+							onChange={(e) => setEditPosName(e.target.value)}
+							onKeyDown={(e) => {
+								if (e.key === "Enter") handleUpdatePosition();
+								if (e.key === "Escape") setEditingPosition(false);
+							}}
+							className="w-64 text-lg"
+						/>
+						<Button size="sm" onClick={handleUpdatePosition} disabled={pending}>
+							Save
+						</Button>
+						<Button size="sm" variant="ghost" onClick={() => setEditingPosition(false)}>
+							Cancel
+						</Button>
+					</div>
+				) : (
+					<button
+						type="button"
+						className="group flex items-center gap-2 cursor-pointer"
+						onClick={() => { setEditingPosition(true); setEditPosName(position.name); setEditPosColor(position.color); }}
+					>
 						<div className="h-4 w-4 rounded" style={{ backgroundColor: position.color }} />
 						<h1 className="text-4xl">{position.name}</h1>
-					</div>
-					<p className="text-muted-foreground">Manage shifts and their weekly schedules</p>
-				</div>
+						<Pencil className="h-4 w-4 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
+					</button>
+				)}
 			</div>
 
 			<div className="space-y-4">
@@ -207,7 +260,7 @@ export default function PositionDetailPage({
 					<CardTitle>Shifts</CardTitle>
 					{!isCreatingShift && (
 						<Button variant="outline" onClick={() => setIsCreatingShift(true)}>
-							<Plus className="h-4 w-4 mr-1" />
+							<Plus className="h-4 w-4" />
 							Add Shift
 						</Button>
 					)}
@@ -321,7 +374,7 @@ export default function PositionDetailPage({
 
 						return (
 							<Card key={shift.id} className={isEditingSchedule ? "border-primary" : ""}>
-								<CardHeader className="py-3">
+								<CardHeader className="py-4">
 									<div className="flex items-center justify-between">
 										{editingShiftId === shift.id ? (
 											<div className="flex gap-2">
@@ -351,16 +404,30 @@ export default function PositionDetailPage({
 										<div className="flex gap-1">
 											<Button
 												size="sm"
-												variant={isEditingSchedule ? "secondary" : "ghost"}
-												onClick={() => setEditingScheduleId(isEditingSchedule ? null : shift.id)}
+												variant="outline"
+												onClick={() => {
+													if (isEditingSchedule) {
+														if (isDirty) {
+															setPendingCloseSchedule(shift.id);
+														} else {
+															setEditingScheduleId(null);
+														}
+													} else {
+														setEditingScheduleId(shift.id);
+													}
+												}}
 											>
-												<CalendarClock className="h-3.5 w-3.5 mr-1" />
-												Edit
+												{isEditingSchedule ? (
+													<X className="h-3.5 w-3.5" />
+												) : (
+													<><CalendarClock className="h-3.5 w-3.5" />Edit</>
+												)}
 											</Button>
 											<Button
-												size="icon"
+												size="icon-sm"
 												variant="ghost"
-												onClick={() => handleDeleteShift(shift.id)}
+												className="hover:bg-red-100 dark:hover:bg-red-950/30 [&:hover_svg]:text-red-500"
+												onClick={() => setShiftToDelete(shift.id)}
 												disabled={pending}
 											>
 												<Trash2 className="h-4 w-4" />
@@ -369,7 +436,7 @@ export default function PositionDetailPage({
 									</div>
 								</CardHeader>
 
-								<CardContent className="space-y-3 pt-0">
+								<CardContent className="space-y-3 p-4 pt-0">
 									{isEditingSchedule ? (
 										/* Editor */
 										<div className="space-y-5">
@@ -480,5 +547,67 @@ export default function PositionDetailPage({
 					})}
 			</div>
 		</div>
+
+		<Dialog open={shiftToDelete !== null} onOpenChange={(open: boolean) => { if (!open) setShiftToDelete(null); }}>
+			<DialogContent onClose={() => setShiftToDelete(null)}>
+				<DialogHeader>
+					<DialogTitle>Delete shift</DialogTitle>
+				</DialogHeader>
+				<p className="text-sm text-muted-foreground">
+					Are you sure you want to delete this shift? This action cannot be undone.
+				</p>
+				<div className="flex justify-end gap-2 pt-2">
+					<Button variant="ghost" onClick={() => setShiftToDelete(null)}>
+						Cancel
+					</Button>
+					<Button
+						variant="destructive"
+						disabled={pending}
+						onClick={() => {
+							if (shiftToDelete) {
+								handleDeleteShift(shiftToDelete);
+								setShiftToDelete(null);
+							}
+						}}
+					>
+						Delete
+					</Button>
+				</div>
+			</DialogContent>
+		</Dialog>
+
+	<Dialog open={pendingCloseSchedule !== null} onOpenChange={(open: boolean) => { if (!open) setPendingCloseSchedule(null); }}>
+		<DialogContent onClose={() => setPendingCloseSchedule(null)}>
+			<DialogHeader>
+				<DialogTitle>Unsaved changes</DialogTitle>
+			</DialogHeader>
+			<p className="text-sm text-muted-foreground">
+				You have unsaved changes in this schedule. Do you want to save them before closing?
+			</p>
+			<div className="flex justify-end gap-2 pt-2">
+				<Button
+					variant="ghost"
+					onClick={() => {
+						setEditingScheduleId(null);
+						setPendingCloseSchedule(null);
+					}}
+				>
+					Discard
+				</Button>
+				<Button
+					disabled={pending}
+					onClick={() => {
+						if (pendingCloseSchedule) {
+							handleSaveShift(pendingCloseSchedule);
+						}
+						setPendingCloseSchedule(null);
+					}}
+				>
+					Save
+				</Button>
+			</div>
+		</DialogContent>
+	</Dialog>
+	</>
 	);
 }

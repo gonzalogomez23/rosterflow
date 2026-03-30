@@ -19,9 +19,10 @@ const PRESET_COLORS = [
 interface ColorPickerProps {
 	name: string;
 	defaultValue?: string;
+	onChange?: (color: string) => void;
 }
 
-export function ColorPicker({ name, defaultValue = "#6366F1" }: ColorPickerProps) {
+export function ColorPicker({ name, defaultValue = "#6366F1", onChange }: ColorPickerProps) {
 	const normalizedDefault = defaultValue.toUpperCase();
 	const isPreset = PRESET_COLORS.includes(normalizedDefault);
 	const [selected, setSelected] = useState(defaultValue);
@@ -76,6 +77,7 @@ export function ColorPicker({ name, defaultValue = "#6366F1" }: ColorPickerProps
 									setSelected(color);
 									setIsCustom(false);
 									setOpen(false);
+									onChange?.(color);
 								}}
 							/>
 						))}
@@ -104,6 +106,7 @@ export function ColorPicker({ name, defaultValue = "#6366F1" }: ColorPickerProps
 							setCustomColor(e.target.value);
 							setSelected(e.target.value);
 							setIsCustom(true);
+							onChange?.(e.target.value);
 						}}
 					/>
 				</div>

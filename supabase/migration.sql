@@ -63,6 +63,7 @@ create table public.employees (
 create table public.employee_positions (
   employee_id uuid not null references public.employees(id) on delete cascade,
   position_id uuid not null references public.positions(id) on delete cascade,
+  is_primary boolean not null default false,
   primary key (employee_id, position_id)
 );
 

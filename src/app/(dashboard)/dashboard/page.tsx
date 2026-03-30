@@ -85,13 +85,13 @@ export default async function DashboardPage() {
 					<CardContent className="grid gap-2">
 						<Button asChild variant="outline" className="justify-start">
 							<Link href="/dashboard/rosters/generate">
-								<Plus className="mr-2 h-4 w-4" />
+								<Plus className="h-4 w-4" />
 								Generate next week&apos;s roster
 							</Link>
 						</Button>
 						<Button asChild variant="outline" className="justify-start">
 							<Link href="/dashboard/employees/new">
-								<Plus className="mr-2 h-4 w-4" />
+								<Plus className="h-4 w-4" />
 								Add new employee
 							</Link>
 						</Button>

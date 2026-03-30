@@ -73,6 +73,7 @@ export default function GenerateRosterPage() {
 				lastName: e.last_name,
 				maxHoursPerWeek: e.max_hours_per_week,
 				positionIds: e.employee_positions.map((ep) => ep.position_id),
+				primaryPositionId: e.employee_positions.find((ep) => ep.is_primary)?.position_id,
 				availability: e.employee_availability.map((a) => ({
 					dayOfWeek: a.day_of_week,
 					startTime: a.start_time,
@@ -226,37 +227,51 @@ export default function GenerateRosterPage() {
 							<CardTitle>Hours Distribution</CardTitle>
 						</CardHeader>
 						<CardContent>
-							<div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-								{employees
+							{(() => {
+								const sorted = employees
 									.filter((e) => (result.stats.employeeHours[e.id] ?? 0) > 0)
 									.sort(
 										(a, b) =>
 											(result.stats.employeeHours[b.id] ?? 0) -
 											(result.stats.employeeHours[a.id] ?? 0),
-									)
-									.map((emp) => {
-										const hours = result.stats.employeeHours[emp.id] ?? 0;
-										const pct = (hours / emp.maxHoursPerWeek) * 100;
-										return (
-											<div key={emp.id} className="flex items-center gap-2">
-												<span className="text-sm w-32 truncate">
-													{emp.firstName} {emp.lastName}
-												</span>
-												<div className="flex-1 h-2 bg-muted rounded-full overflow-hidden">
-													<div
-														className="h-full bg-primary rounded-full"
-														style={{
-															width: `${Math.min(pct, 100)}%`,
-														}}
-													/>
-												</div>
-												<span className="text-xs text-muted-foreground w-16 text-right">
-													{hours.toFixed(1)}/{emp.maxHoursPerWeek}h
-												</span>
+									);
+								const cols = 3;
+								const perCol = Math.ceil(sorted.length / cols);
+								const columns: typeof sorted[] = [];
+								for (let i = 0; i < cols; i++) {
+									columns.push(sorted.slice(i * perCol, (i + 1) * perCol));
+								}
+								return (
+									<div className="grid lg:grid-cols-3 sm:grid-cols-2 divide-x divide-border">
+										{columns.map((col, colIdx) => (
+											<div key={colIdx} className="space-y-2 px-4 first:pl-0 last:pr-0">
+												{col.map((emp) => {
+													const hours = result.stats.employeeHours[emp.id] ?? 0;
+													const pct = (hours / emp.maxHoursPerWeek) * 100;
+													return (
+														<div key={emp.id} className="flex items-center gap-2">
+															<span className="text-sm w-32 truncate">
+																{emp.firstName} {emp.lastName}
+															</span>
+															<div className="flex-1 h-2 bg-muted rounded-full overflow-hidden">
+																<div
+																	className="h-full bg-primary rounded-full"
+																	style={{
+																		width: `${Math.min(pct, 100)}%`,
+																	}}
+																/>
+															</div>
+															<span className="text-xs text-muted-foreground w-16 text-right">
+																{hours.toFixed(1)}/{emp.maxHoursPerWeek}h
+															</span>
+														</div>
+													);
+												})}
 											</div>
-										);
-									})}
-							</div>
+										))}
+									</div>
+								);
+							})()}
 						</CardContent>
 					</Card>
 

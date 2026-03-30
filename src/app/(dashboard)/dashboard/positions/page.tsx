@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useTransition } from "react";
 import Link from "next/link";
-import { Pencil, Trash2, Settings, Plus } from "lucide-react";
+import { Trash2, Settings, Plus } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -20,7 +20,6 @@ import {
 import {
 	getPositions,
 	createPosition,
-	updatePosition,
 	deletePosition,
 } from "@/actions/positions";
 import { getShifts } from "@/actions/shifts";
@@ -34,7 +33,6 @@ interface Position {
 export default function PositionsPage() {
 	const [positions, setPositions] = useState<Position[]>([]);
 	const [shiftCounts, setShiftCounts] = useState<Record<string, number>>({});
-	const [editingId, setEditingId] = useState<string | null>(null);
 	const [showCreate, setShowCreate] = useState(false);
 	const [deletingId, setDeletingId] = useState<string | null>(null);
 	const [pending, startTransition] = useTransition();
@@ -61,14 +59,6 @@ export default function PositionsPage() {
 		});
 	}
 
-	function handleUpdate(id: string, formData: FormData) {
-		startTransition(async () => {
-			await updatePosition(id, formData);
-			setEditingId(null);
-			await loadPositions();
-		});
-	}
-
 	function handleDelete() {
 		if (!deletingId) return;
 		startTransition(async () => {
@@ -84,7 +74,7 @@ export default function PositionsPage() {
 				<PageHeader title="Positions" description="Manage the roles employees can fill" />
 				{!showCreate && (
 					<Button onClick={() => setShowCreate(true)}>
-						<Plus className="h-4 w-4 mr-1.5" />
+						<Plus className="h-4 w-4" />
 						New Position
 					</Button>
 				)}
@@ -114,89 +104,41 @@ export default function PositionsPage() {
 				<TableBody>
 					{positions.map((pos) => (
 						<TableRow key={pos.id}>
-							{editingId === pos.id ? (
-								<>
-									<TableCell>
-										<form
-											id={`edit-${pos.id}`}
-											action={(fd) => handleUpdate(pos.id, fd)}
-											className="flex items-center gap-2"
-										>
-											<ColorPicker name="color" defaultValue={pos.color} />
-											<Input
-												name="name"
-												defaultValue={pos.name}
-												required
-											/>
-										</form>
-									</TableCell>
-									<TableCell>
-										<div className="flex gap-1 justify-end">
-											<Button
-												size="sm"
-												type="submit"
-												form={`edit-${pos.id}`}
-												disabled={pending}
-											>
-												Save
-											</Button>
-											<Button
-												size="sm"
-												variant="ghost"
-												onClick={() => setEditingId(null)}
-											>
-												Cancel
-											</Button>
-										</div>
-									</TableCell>
-								</>
-							) : (
-								<>
-									<TableCell>
-										<div className="flex items-center gap-2.5">
-											<div
-												className="h-3.5 w-3.5 rounded-full shrink-0"
-												style={{ backgroundColor: pos.color }}
-											/>
-											<span className="font-semibold">{pos.name}</span>
-										</div>
-									</TableCell>
-									<TableCell>
-										<div className="flex items-center gap-2 justify-end">
-											<Badge variant="secondary" className="whitespace-nowrap">
-												{shiftCounts[pos.id] ?? 0} {(shiftCounts[pos.id] ?? 0) === 1 ? "shift" : "shifts"}
-											</Badge>
-											<Button
-												size="sm"
-												variant="outline"
-												asChild
-											>
-												<Link href={`/dashboard/positions/${pos.id}`}>
-													<Settings className="h-3.5 w-3.5 mr-1.5" />
-													Manage
-												</Link>
-											</Button>
-											<Button
-												size="icon"
-												variant="ghost"
-												className="cursor-pointer"
-												onClick={() => setEditingId(pos.id)}
-											>
-												<Pencil className="h-4 w-4" />
-											</Button>
-											<Button
-												size="icon"
-												variant="ghost"
-												className="cursor-pointer"
-												onClick={() => setDeletingId(pos.id)}
-												disabled={pending}
-											>
-												<Trash2 className="h-4 w-4" />
-											</Button>
-										</div>
-									</TableCell>
-								</>
-							)}
+							<TableCell>
+								<div className="flex items-center gap-2.5">
+									<div
+										className="h-3.5 w-3.5 rounded-full shrink-0"
+										style={{ backgroundColor: pos.color }}
+									/>
+									<span className="font-semibold">{pos.name}</span>
+								</div>
+							</TableCell>
+							<TableCell>
+								<div className="flex items-center gap-2 justify-end">
+									<Badge variant="secondary" className="whitespace-nowrap">
+										{shiftCounts[pos.id] ?? 0} {(shiftCounts[pos.id] ?? 0) === 1 ? "shift" : "shifts"}
+									</Badge>
+									<Button
+										size="sm"
+										variant="outline"
+										asChild
+									>
+										<Link href={`/dashboard/positions/${pos.id}`}>
+											<Settings className="h-3.5 w-3.5" />
+											Manage
+										</Link>
+									</Button>
+									<Button
+										size="icon"
+										variant="ghost"
+										className="cursor-pointer hover:bg-red-100 dark:hover:bg-red-950/30 [&:hover_svg]:text-red-500"
+										onClick={() => setDeletingId(pos.id)}
+										disabled={pending}
+									>
+										<Trash2 className="h-4 w-4" />
+									</Button>
+								</div>
+							</TableCell>
 						</TableRow>
 					))}
 					{positions.length === 0 && (

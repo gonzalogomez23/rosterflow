@@ -33,7 +33,7 @@ interface Props {
 		email: string | null;
 		phone: string | null;
 		max_hours_per_week: number;
-		employee_positions: { position_id: string }[];
+		employee_positions: { position_id: string; is_primary: boolean }[];
 		employee_availability: {
 			day_of_week: number;
 			start_time: string;
@@ -47,8 +47,11 @@ export function EmployeeForm({ positions, employee }: Props) {
 	const [pending, startTransition] = useTransition();
 	const [error, setError] = useState<string | null>(null);
 
-	const [selectedPositions, setSelectedPositions] = useState<Set<string>>(
-		new Set(employee?.employee_positions.map((ep) => ep.position_id) ?? []),
+	const [primaryPositionId, setPrimaryPositionId] = useState<string | null>(
+		employee?.employee_positions.find((ep) => ep.is_primary)?.position_id ?? null,
+	);
+	const [secondaryPositions, setSecondaryPositions] = useState<Set<string>>(
+		new Set(employee?.employee_positions.filter((ep) => !ep.is_primary).map((ep) => ep.position_id) ?? []),
 	);
 
 	const [availability, setAvailability] = useState<AvailabilityWindow[]>(() => {
@@ -56,7 +59,7 @@ export function EmployeeForm({ positions, employee }: Props) {
 			// Default: Mon-Fri 09:00-17:00
 			return Array.from({ length: 5 }, (_, i) => ({
 				dayOfWeek: i,
-				startTime: "09:00",
+				startTime: "07:00",
 				endTime: "17:00",
 			}));
 		}
@@ -67,8 +70,8 @@ export function EmployeeForm({ positions, employee }: Props) {
 		}));
 	});
 
-	function togglePosition(id: string) {
-		setSelectedPositions((prev) => {
+	function toggleSecondaryPosition(id: string) {
+		setSecondaryPositions((prev) => {
 			const next = new Set(prev);
 			if (next.has(id)) next.delete(id);
 			else next.add(id);
@@ -104,24 +107,25 @@ export function EmployeeForm({ positions, employee }: Props) {
 	function handleSubmit(formData: FormData) {
 		setError(null);
 
+		if (!primaryPositionId) {
+			setError("Select a primary position");
+			return;
+		}
+
 		const data: EmployeeFormData = {
 			first_name: formData.get("first_name") as string,
 			last_name: formData.get("last_name") as string,
 			email: (formData.get("email") as string) || "",
 			phone: (formData.get("phone") as string) || "",
 			max_hours_per_week: Number(formData.get("max_hours_per_week")),
-			position_ids: Array.from(selectedPositions),
+			primary_position_id: primaryPositionId,
+			secondary_position_ids: Array.from(secondaryPositions).filter((id) => id !== primaryPositionId),
 			availability: availability.map((w) => ({
 				day_of_week: w.dayOfWeek,
 				start_time: w.startTime,
 				end_time: w.endTime,
 			})),
 		};
-
-		if (data.position_ids.length === 0) {
-			setError("Select at least one position");
-			return;
-		}
 
 		startTransition(async () => {
 			const result = employee
@@ -193,10 +197,10 @@ export function EmployeeForm({ positions, employee }: Props) {
 				</CardContent>
 			</Card>
 
-			{/* Positions */}
+			{/* Primary Position */}
 			<Card>
 				<CardHeader>
-					<CardTitle>Positions</CardTitle>
+					<CardTitle>Primary Position</CardTitle>
 				</CardHeader>
 				<CardContent>
 					<div className="flex flex-wrap gap-2">
@@ -204,14 +208,21 @@ export function EmployeeForm({ positions, employee }: Props) {
 							<button
 								key={pos.id}
 								type="button"
-								onClick={() => togglePosition(pos.id)}
+								onClick={() => {
+									setPrimaryPositionId(primaryPositionId === pos.id ? null : pos.id);
+									setSecondaryPositions((prev) => {
+										const next = new Set(prev);
+										next.delete(pos.id);
+										return next;
+									});
+								}}
 								className={`rounded-full border px-3 py-1 text-sm transition-colors ${
-									selectedPositions.has(pos.id)
+									primaryPositionId === pos.id
 										? "border-transparent text-white"
 										: "bg-background hover:bg-accent"
 								}`}
 								style={
-									selectedPositions.has(pos.id)
+									primaryPositionId === pos.id
 										? { backgroundColor: pos.color }
 										: { borderColor: pos.color }
 								}
@@ -222,6 +233,48 @@ export function EmployeeForm({ positions, employee }: Props) {
 						{positions.length === 0 && (
 							<p className="text-sm text-muted-foreground">
 								Create positions first.
+							</p>
+						)}
+					</div>
+				</CardContent>
+			</Card>
+
+			{/* Secondary Positions */}
+			<Card>
+				<CardHeader>
+					<CardTitle>Secondary Positions</CardTitle>
+				</CardHeader>
+				<CardContent>
+					<div className="flex flex-wrap gap-2">
+						{positions
+							.filter((pos) => pos.id !== primaryPositionId)
+							.map((pos) => (
+								<button
+									key={pos.id}
+									type="button"
+									onClick={() => toggleSecondaryPosition(pos.id)}
+									className={`rounded-full border px-3 py-1 text-sm transition-colors ${
+										secondaryPositions.has(pos.id)
+											? "border-transparent text-white"
+											: "bg-background hover:bg-accent"
+									}`}
+									style={
+										secondaryPositions.has(pos.id)
+											? { backgroundColor: pos.color }
+											: { borderColor: pos.color }
+									}
+								>
+									{pos.name}
+								</button>
+							))}
+						{!primaryPositionId && (
+							<p className="text-sm text-muted-foreground">
+								Select a primary position first.
+							</p>
+						)}
+						{primaryPositionId && positions.filter((p) => p.id !== primaryPositionId).length === 0 && (
+							<p className="text-sm text-muted-foreground">
+								No other positions available.
 							</p>
 						)}
 					</div>
@@ -240,24 +293,26 @@ export function EmployeeForm({ positions, employee }: Props) {
 					{DAYS.map((day, dayIdx) => {
 						const windows = getWindowsForDay(dayIdx);
 						return (
-							<div key={dayIdx} className="space-y-2">
+							<div key={dayIdx}>
+							{dayIdx > 0 && <hr className="border-border mb-4" />}
+							<div className="space-y-2">
 								<div className="flex items-center justify-between">
 									<span className="text-sm font-medium w-12">{day}</span>
 									<Button
 										type="button"
-										variant="ghost"
+										variant="outline"
 										size="sm"
 										onClick={() => addWindow(dayIdx)}
 									>
-										<Plus className="h-3 w-3 mr-1" />
+										<Plus className="h-3 w-3" />
 										Add
 									</Button>
 								</div>
 								{windows.length === 0 && (
-									<p className="text-xs text-muted-foreground ml-12">Not available</p>
+									<p className="text-xs text-muted-foreground ">Not available</p>
 								)}
 								{windows.map((w) => (
-									<div key={w.idx} className="flex items-center gap-2 ml-12">
+									<div key={w.idx} className="flex items-center gap-2 ">
 										<Input
 											type="time"
 											value={w.startTime}
@@ -281,6 +336,7 @@ export function EmployeeForm({ positions, employee }: Props) {
 										</Button>
 									</div>
 								))}
+							</div>
 							</div>
 						);
 					})}

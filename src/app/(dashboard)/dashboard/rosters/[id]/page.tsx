@@ -27,6 +27,7 @@ export default async function RosterDetailPage({
 		lastName: e.last_name,
 		maxHoursPerWeek: e.max_hours_per_week,
 		positionIds: e.employee_positions.map((ep) => ep.position_id),
+		primaryPositionId: e.employee_positions.find((ep: { is_primary: boolean }) => ep.is_primary)?.position_id,
 		availability: e.employee_availability.map((a) => ({
 			dayOfWeek: a.day_of_week,
 			startTime: a.start_time,

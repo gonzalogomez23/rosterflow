@@ -22,13 +22,21 @@ export default async function EmployeesPage() {
 
 	const posMap = new Map(positions.map((p) => [p.id, p]));
 
+	const sortedEmployees = [...employees].sort((a, b) => {
+		const aPrimary = a.employee_positions.find((ep: { is_primary: boolean }) => ep.is_primary)?.position_id;
+		const bPrimary = b.employee_positions.find((ep: { is_primary: boolean }) => ep.is_primary)?.position_id;
+		const aName = posMap.get(aPrimary ?? "")?.name ?? "zzz";
+		const bName = posMap.get(bPrimary ?? "")?.name ?? "zzz";
+		return aName.localeCompare(bName) || a.first_name.localeCompare(b.first_name);
+	});
+
 	return (
 		<div className="space-y-6">
 			<div className="flex items-center justify-between">
 				<PageHeader title="Employees" description="Manage your team members" />
 				<Button asChild>
 					<Link href="/dashboard/employees/new">
-						<Plus className="mr-2 h-4 w-4" />
+						<Plus className="h-4 w-4" />
 						Add Employee
 					</Link>
 				</Button>
@@ -38,29 +46,31 @@ export default async function EmployeesPage() {
 				<TableHeader>
 					<TableRow>
 						<TableHead>Name</TableHead>
-						<TableHead>Email</TableHead>
 						<TableHead>Max Hours</TableHead>
 						<TableHead>Positions</TableHead>
 						<TableHead className="w-20">Actions</TableHead>
 					</TableRow>
 				</TableHeader>
 				<TableBody>
-					{employees.map((emp) => (
+					{sortedEmployees.map((emp) => (
 						<TableRow key={emp.id}>
 							<TableCell className="font-medium">
 								{emp.first_name} {emp.last_name}
 							</TableCell>
-							<TableCell>{emp.email || "—"}</TableCell>
 							<TableCell>{emp.max_hours_per_week}h</TableCell>
 							<TableCell>
 								<div className="flex flex-wrap gap-1">
-									{emp.employee_positions.map((ep) => {
+									{[...emp.employee_positions].sort((a: { is_primary: boolean }, b: { is_primary: boolean }) => (b.is_primary ? 1 : 0) - (a.is_primary ? 1 : 0)).map((ep: { position_id: string; is_primary: boolean }) => {
 										const pos = posMap.get(ep.position_id);
 										return pos ? (
 											<Badge
 												key={ep.position_id}
 												variant="secondary"
-												style={{ borderColor: pos.color }}
+												style={
+													ep.is_primary
+														? { backgroundColor: pos.color, color: "white", borderColor: pos.color }
+														: { backgroundColor: `${pos.color}15`, borderColor: pos.color }
+												}
 											>
 												{pos.name}
 											</Badge>
@@ -79,7 +89,7 @@ export default async function EmployeesPage() {
 					))}
 					{employees.length === 0 && (
 						<TableRow>
-							<TableCell colSpan={5} className="text-center text-muted-foreground">
+							<TableCell colSpan={4} className="text-center text-muted-foreground">
 								No employees yet.{" "}
 								<Link href="/dashboard/employees/new" className="underline">
 									Add one

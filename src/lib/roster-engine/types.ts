@@ -24,6 +24,7 @@ export interface Employee {
 	lastName: string;
 	maxHoursPerWeek: number;
 	positionIds: string[];
+	primaryPositionId?: string;
 	availability: EmployeeAvailability[];
 }
 
